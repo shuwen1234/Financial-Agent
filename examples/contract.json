@@ -1,0 +1,11 @@
+{
+  "doc_id": "CONTRACT-2026-001",
+  "version": 1,
+  "title": "示例贷款合同条款",
+  "classification": "confidential",
+  "acl_roles": ["legal"],
+  "effective_from": "2026-01-01",
+  "effective_to": null,
+  "content": "agent学习路径 先学习rag,然后学习chain-of-thought。\n\n第七条 提前还款。借款人应提前三十日提交书面申请，具体办理要求以双方签署的合同及补充协议为准。\n\n第八条 违约责任。发生违约时，应按合同约定流程通知对方并保留相关证据。",
+  "source_name": "contract-example.txt"
+}
