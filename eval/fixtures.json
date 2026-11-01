@@ -1,0 +1,5 @@
+[
+  {"doc_id":"CONTRACT-001","version":1,"title":"示例贷款合同","classification":"internal","acl_roles":["legal"],"effective_from":"2026-01-01","content":"第七条 提前还款。借款人应提前三十日提交书面申请。\n\n第八条 违约责任。发生违约时，按合同约定流程通知对方并留存证据。"},
+  {"doc_id":"POLICY-AML","version":1,"title":"示例反洗钱制度","classification":"internal","acl_roles":["legal"],"effective_from":"2026-01-01","content":"第一章 客户身份识别。办理业务时应核对客户身份信息。\n\n第二章 反洗钱审查。完成审查后应留存审查记录。"},
+  {"doc_id":"POLICY-ARCHIVE","version":1,"title":"示例档案管理制度","classification":"internal","acl_roles":["legal"],"effective_from":"2026-01-01","content":"第一章 档案访问。合同档案按租户、角色和密级控制。\n\n第二章 档案版本。按生效日期和版本号确定适用档案。合同变更应保留书面变更记录。"}
+]

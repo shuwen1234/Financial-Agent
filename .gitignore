@@ -8,3 +8,6 @@ data/
 *.db
 *.db-shm
 *.db-wal
+eval/results/
+web/node_modules/
+web/dist/

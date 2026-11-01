@@ -4,10 +4,11 @@ from io import BytesIO
 from pathlib import PurePath
 from zipfile import BadZipFile, ZipFile
 
-from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+
+from app.parse.docx_parser import extract_docx
 
 
 class UnsupportedDocument(ValueError):
@@ -40,11 +41,7 @@ def extract_text(filename: str, data: bytes, max_chars: int = 2_000_000) -> str:
             with ZipFile(BytesIO(data)) as archive:
                 if len(archive.infolist()) > 2000 or sum(item.file_size for item in archive.infolist()) > 50_000_000:
                     raise UnsupportedDocument("DOCX 解压后超过上限")
-            document = Document(BytesIO(data))
-            parts = [p.text for p in document.paragraphs if p.text.strip()]
-            for table in document.tables:
-                parts.extend(" | ".join(cell.text for cell in row.cells) for row in table.rows)
-            text = "\n\n".join(parts)
+            text = extract_docx(data)
         else:
             raise UnsupportedDocument("仅支持 TXT、PDF、DOCX")
     except (UnicodeDecodeError, BadZipFile, PdfReadError, PackageNotFoundError, ValueError, OSError) as exc:

@@ -1,0 +1,2 @@
+[lint.per-file-ignores]
+"app/main.py" = ["B008"]  # FastAPI Depends/Form/File 的声明式默认值

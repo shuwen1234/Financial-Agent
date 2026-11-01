@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import logging
 import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from openai import OpenAIError
 from pydantic import ValidationError
 
 from app.agent.graph import FinancialAgent
 from app.agent.nodes import AgentNodes
 from app.config import Settings, get_settings
+from app.retrieve.rerank import make_reranker
 from app.schemas.archive import ArchiveCreate, ArchiveMetadata, Classification
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.archive import ArchiveConflict, ArchiveStore, CandidateLimitExceeded
@@ -20,6 +34,12 @@ from app.services.llm import make_llm
 from app.services.parser import UnsupportedDocument, extract_text, safe_filename
 from app.services.retrieval import RetrievalService
 
+logger = logging.getLogger(__name__)
+
+
+def sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
@@ -27,7 +47,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = ArchiveStore(settings.resolved_database_path, settings.max_retrieval_candidates)
     app.state.auth = AuthService(settings)
-    app.state.agent = FinancialAgent(AgentNodes(RetrievalService(app.state.store), make_llm(settings)))
+    app.state.agent = FinancialAgent(AgentNodes(
+        RetrievalService(app.state.store, make_reranker(settings), settings.min_token_overlap), make_llm(settings),
+    ))
 
     @app.get("/health/live")
     def live() -> dict[str, str]:
@@ -105,7 +127,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
              "references": [{"doc_id": c.doc_id, "version": c.version} for c in citations]},
         )
         return ChatResponse(trace_id=trace_id, answer=state["answer"], grounded=state["grounded"],
-                            citations=citations, retrieval_attempts=state["attempts"], as_of=as_of)
+                            citations=citations, retrieval_attempts=state["attempts"], as_of=as_of,
+                            plan=state["plan"])
+
+    @app.post("/v1/chat/stream")
+    async def chat_stream(payload: ChatRequest, request: Request, principal: Principal = Depends(get_principal)) -> StreamingResponse:
+        require_role(principal, "archive_reader")
+        as_of = payload.as_of or datetime.now(ZoneInfo(settings.business_timezone)).date()
+        trace_id = uuid.uuid4().hex
+
+        async def events():
+            final: dict = {}
+            try:
+                async for update in request.app.state.agent.stream_updates(principal, payload.question, as_of, payload.top_k):
+                    if await request.is_disconnected():
+                        request.app.state.store.audit(trace_id, principal, "archive.query", "cancelled", {})
+                        logger.warning("已取消 trace_id=%s", trace_id)
+                        return
+                    for node, values in update.items():
+                        final.update(values)
+                        if node == "plan":
+                            yield sse("plan", {"trace_id": trace_id, "steps": values["plan"]})
+                        elif node == "retrieve":
+                            yield sse("retrieve", {"attempts": values["attempts"], "count": len(values["evidence"])})
+                        elif node == "grade":
+                            yield sse("grade", {"sufficient": values["sufficient"]})
+                        elif node == "rewrite":
+                            yield sse("rewrite", {"attempts": final.get("attempts", 0)})
+                        elif node == "synthesize":
+                            answer = values["answer"]
+                            for start in range(0, len(answer), 16):
+                                if await request.is_disconnected():
+                                    request.app.state.store.audit(trace_id, principal, "archive.query", "cancelled", {})
+                                    logger.warning("已取消 trace_id=%s", trace_id)
+                                    return
+                                yield sse("token", {"text": answer[start:start + 16]})
+                            yield sse("citation", {"sources": [c.model_dump(mode="json") for c in values["citations"]]})
+                request.app.state.store.audit(
+                    trace_id, principal, "archive.query", "answered" if final.get("grounded") else "insufficient_evidence",
+                    {"question_sha256": hashlib.sha256(payload.question.encode("utf-8")).hexdigest(),
+                     "references": [{"doc_id": c.doc_id, "version": c.version} for c in final.get("citations", [])]},
+                )
+                yield sse("done", {"trace_id": trace_id, "grounded": final.get("grounded", False)})
+            except asyncio.CancelledError:
+                logger.warning("已取消 trace_id=%s", trace_id)
+                request.app.state.store.audit(trace_id, principal, "archive.query", "cancelled", {})
+                raise
+            except (CandidateLimitExceeded, OpenAIError):
+                request.app.state.store.audit(trace_id, principal, "archive.query", "error", {})
+                yield sse("error", {"trace_id": trace_id, "message": "检索或模型服务暂时不可用"})
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     return app
 

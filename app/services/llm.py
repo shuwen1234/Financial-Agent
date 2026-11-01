@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from app.agent.prompts import SYSTEM_PROMPT, user_prompt
+from app.agent.prompts import build_messages
 from app.config import Settings
 from app.services.retrieval import Evidence
 
@@ -36,6 +36,7 @@ class OpenAILLM:
 
         self.client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, timeout=30, max_retries=2)
         self.model = settings.openai_model
+        self.prompt_version = settings.prompt_version
         self.fallback = ExtractiveLLM()
 
     def generate(self, question: str, evidence: list[Evidence]) -> AnswerResult:
@@ -43,10 +44,7 @@ class OpenAILLM:
             return self.fallback.generate(question, evidence)
         response = self.client.responses.parse(
             model=self.model,
-            input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt(question, [(i, e.title, e.excerpt, e.version) for i, e in enumerate(evidence, start=1)])},
-            ],
+            input=build_messages(question, [(i, e.title, e.excerpt, e.version) for i, e in enumerate(evidence, start=1)], self.prompt_version),
             text_format=AnswerDraft,
         )
         draft = response.output_parsed

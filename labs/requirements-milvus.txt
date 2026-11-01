@@ -1,0 +1,3 @@
+pymilvus[milvus_lite]>=3.0,<4
+milvus-lite>=3.2,<4
+# 真正运行 BGE-M3 / Reranker 时再安装：pip install FlagEmbedding

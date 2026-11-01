@@ -11,6 +11,7 @@ from app.services.retrieval import Evidence
 class AgentState(TypedDict):
     principal: Principal
     question: str
+    plan: list[str]
     as_of: date
     top_k: int
     query: str

@@ -18,6 +18,8 @@ class Citation(BaseModel):
     title: str
     excerpt: str
     score: float
+    parent_id: str = ""
+    section_path: str = "正文"
 
 
 class ChatResponse(BaseModel):
@@ -27,3 +29,4 @@ class ChatResponse(BaseModel):
     citations: list[Citation]
     retrieval_attempts: int
     as_of: date
+    plan: list[str] = Field(default_factory=list)

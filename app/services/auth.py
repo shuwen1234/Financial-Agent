@@ -55,7 +55,7 @@ class AuthService:
             if not isinstance(roles, list) or not all(isinstance(x, str) for x in roles):
                 raise ValueError("invalid roles")
             if not isinstance(claims.get("sub"), str) or not isinstance(claims.get("tenant_id"), str):
-                raise ValueError("invalid subject or tenant")
+                raise TypeError("invalid subject or tenant")
             principal = Principal(
                 user_id=claims["sub"],
                 tenant_id=claims["tenant_id"],
@@ -65,7 +65,7 @@ class AuthService:
             if not principal.user_id or not principal.tenant_id:
                 raise ValueError("empty subject or tenant")
             return principal
-        except (jwt.PyJWTError, KeyError, ValueError):
+        except (jwt.PyJWTError, KeyError, TypeError, ValueError):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "认证失败") from None
 
 

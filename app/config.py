@@ -27,11 +27,15 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str | None = None
     openai_api_key: str | None = None
+    prompt_version: str = "v1"
+    reranker_mode: Literal["none", "bge"] = "none"
+    rerank_min_score: float | None = None
+    min_token_overlap: int = Field(default=2, ge=1, le=10)
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     max_retrieval_candidates: int = Field(default=2000, ge=10, le=100000)
 
     @model_validator(mode="after")
-    def validate_modes(self) -> "Settings":
+    def validate_modes(self) -> Settings:
         if self.app_env == "production" and self.auth_mode != "jwt":
             raise ValueError("生产环境必须使用 JWT 认证")
         if self.auth_mode == "jwt":

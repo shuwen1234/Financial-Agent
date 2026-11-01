@@ -1,0 +1,12 @@
+[
+  {"question":"提前还款要提前多少天申请？","reference":"提前三十日提交书面申请","expected_doc_id":"CONTRACT-001","should_refuse":false},
+  {"question":"提前还钱要提交什么？","reference":"书面申请","expected_doc_id":"CONTRACT-001","should_refuse":false},
+  {"question":"违约时如何通知对方？","reference":"按合同约定流程通知对方","expected_doc_id":"CONTRACT-001","should_refuse":false},
+  {"question":"客户身份识别要核对什么？","reference":"核对客户身份信息","expected_doc_id":"POLICY-AML","should_refuse":false},
+  {"question":"反洗钱审查的记录要怎样处理？","reference":"留存审查记录","expected_doc_id":"POLICY-AML","should_refuse":false},
+  {"question":"谁能访问合同档案？","reference":"按租户、角色和密级控制","expected_doc_id":"POLICY-ARCHIVE","should_refuse":false},
+  {"question":"档案版本如何确定？","reference":"按生效日期和版本号确定","expected_doc_id":"POLICY-ARCHIVE","should_refuse":false},
+  {"question":"合同变更要保留什么？","reference":"保留书面变更记录","expected_doc_id":"POLICY-ARCHIVE","should_refuse":false},
+  {"question":"量子芯片生产流程是什么？","reference":"无档案依据，应拒答","expected_doc_id":null,"should_refuse":true},
+  {"question":"月球车发动机参数是什么？","reference":"无档案依据，应拒答","expected_doc_id":null,"should_refuse":true}
+]

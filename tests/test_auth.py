@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import jwt
@@ -21,7 +21,7 @@ def test_production_jwt_verifies_signature_claims_and_expiry() -> None:
     )
     auth = AuthService(settings)
     auth.jwks = SimpleNamespace(get_signing_key_from_jwt=lambda _: SimpleNamespace(key=private_key.public_key()))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     claims = {
         "iss": settings.jwt_issuer, "aud": settings.jwt_audience,
         "sub": "user-1", "tenant_id": "tenant-a", "roles": ["archive_reader", "legal"],

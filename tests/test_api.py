@@ -67,7 +67,7 @@ def test_latest_effective_version_and_upload(client: TestClient) -> None:
         "/v1/archives/upload", headers=headers(),
         data={"doc_id": "POLICY-001", "version": "1", "title": "合规政策", "classification": "internal",
               "acl_roles": "legal", "effective_from": "2026-01-01"},
-        files={"file": ("policy.txt", "反洗钱审查应核验客户身份。".encode("utf-8"), "text/plain")},
+        files={"file": ("policy.txt", "反洗钱审查应核验客户身份。".encode(), "text/plain")},
     )
     assert upload.status_code == 201
     assert upload.json()["source_name"] == "policy.txt"

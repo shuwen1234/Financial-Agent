@@ -1,8 +1,8 @@
 """针对已启动的本地服务导入示例合同并发起一次问答。"""
 from __future__ import annotations
 
-import json
 import argparse
+import json
 from pathlib import Path
 
 import httpx

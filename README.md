@@ -1,101 +1,99 @@
-# Financial Agent：合同与合规档案问答
+# Financial Agent：合同与合规档案学习项目
 
-这是一个可运行的服务骨架：**档案入库 → 租户/角色/密级/生效日期过滤 → BM25 检索 → LangGraph 有界重试 → 带引用回答 → 审计记录**。默认使用本地 SQLite 和抽取式回答；没有模型密钥也能运行。示例档案均为虚构内容。
+这个仓库以**虚构档案**复现一个可运行的问答链路：上传/入库 → 租户与权限过滤 → 章节父子块 → BM25 召回 → LangGraph 规划与证据判断 → 带版本引用的回答 → 审计记录。Milvus、BGE、HyDE、RAGAS、Text2SQL 和代码审查放在独立练习模块，避免实验依赖影响主服务。
 
-## 项目结构
+**每日学习入口：** [21 天每日代码导读](docs/21天每日代码导读.md)。每天都有要看的函数、关键逻辑、运行命令和能讲清的边界。
 
-```text
-financial-agent/
-├─ app/
-│  ├─ agent/          # state.py / graph.py / nodes.py / prompts.py
-│  ├─ services/       # archive.py / auth.py / parser.py / retrieval.py / llm.py
-│  ├─ schemas/        # archive.py / chat.py
-│  ├─ config.py
-│  └─ main.py
-├─ examples/contract.json
-├─ tests/test_api.py
-├─ requirements.txt
-├─ .env
-├─ .env.example
-└─ .gitignore
+## 主链路
+
+```mermaid
+flowchart TD
+  A[上传或录入合同档案] --> B[解析 PDF/DOCX/TXT]
+  B --> C[(SQLite 档案版本与审计)]
+  Q[用户提问] --> API[FastAPI 身份认证]
+  API --> P[plan 术语归一]
+  P --> R[retrieve 权限与日期过滤]
+  C --> R
+  R --> CH[子块召回/父段落回填]
+  CH --> G{grade 证据够吗}
+  G -->|不足且可重试| W[rewrite]
+  W --> R
+  G -->|足够或达到上限| S[synthesize]
+  S --> L[可选模型回答/无证据拒答]
+  L --> V[校验 source_id]
+  V --> O[引用、审计、JSON 或 SSE 响应]
 ```
 
-## 启动
+| 模块 | 文件 | 要看什么 |
+| --- | --- | --- |
+| HTTP 入口 | [app/main.py](app/main.py) | 入库、问答、SSE 与权限检查 |
+| 状态图 | [app/agent/graph.py](app/agent/graph.py)、[nodes.py](app/agent/nodes.py) | plan / retrieve / grade / rewrite / synthesize |
+| 档案解析 | [app/services/parser.py](app/services/parser.py)、[chunker.py](app/parse/chunker.py) | PDF/DOCX 边界、父子块与章节路径 |
+| 检索 | [app/services/retrieval.py](app/services/retrieval.py) | 权限先过滤、子块检索、父段落引用、拒答门槛 |
+| Prompt/LLM | [app/prompts/loader.py](app/prompts/loader.py)、[v1.yaml](prompts/answer/v1.yaml)、[app/services/llm.py](app/services/llm.py) | 版本加载、结构化输出、引用 ID 校验 |
+| 回归 | [eval/run_offline.py](eval/run_offline.py)、[golden.json](eval/golden.json) | 正样本引用与负样本拒答分别统计 |
 
-在 `financial-agent` 目录运行：
+## 启动主服务
+
+在仓库根目录的 PowerShell 运行：
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-在另一个终端提交示例档案并提问：
+另开终端导入虚构档案并提问：
 
 ```powershell
-py -3.12 -m examples.run_demo --tenant my-demo --question "提前还款需要提前多少天申请？"
+.\.venv\Scripts\python.exe -m examples.run_demo --tenant my-demo-001 --question "提前还款需要提前多少天申请？"
 ```
 
-如果 8000 端口已被占用，可把启动命令的端口改为 `--port 8001`，再用 `py -3.12 -m examples.run_demo --base-url http://127.0.0.1:8001 --tenant my-demo --question "提前还款需要提前多少天申请？"` 验证。若同一租户下该档案版本已有不同内容，使用新的演示租户或提升示例档案版本。
+如果 8000 已被占用，把服务端口改为 8001，并在示例命令加 `--base-url http://127.0.0.1:8001`。接口文档在 `/docs`，健康检查是 `/health/live`、`/health/ready`。重复使用同一 `tenant/doc_id/version` 但改变内容会返回 409；提升版本号或换一个**演示租户**，不要覆盖旧档案。
 
-也可以分别调用接口：
+默认 `LLM_PROVIDER=extractive`，无需外部模型。若启用已获授权的模型服务，在本机 `.env` 配置 `LLM_PROVIDER=openai`、`OPENAI_MODEL`、`OPENAI_API_KEY`、必要时 `OPENAI_BASE_URL`。真实密钥只放 `.env` 或密钥管理系统；`.env` 已被 Git 忽略。
+
+## SSE 与 Vue3
+
+`POST /v1/chat/stream` 输出 `plan / retrieve / grade / rewrite / token / citation / done` 事件。前端在 [web/](web/) 用 `fetch + ReadableStream` 消费 SSE，用 `AbortController` 停止请求。
 
 ```powershell
-$headers = @{ Authorization = "Bearer example-only"; "X-Demo-Tenant" = "demo-tenant"; "X-Demo-Roles" = "archive_reader,archive_writer,legal"; "X-Demo-Clearance" = "restricted" }
-$body = Get-Content .\examples\contract.json -Raw -Encoding UTF8
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/archives -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body
-$question = @{ question = "提前还款需要提前多少天申请？"; as_of = "2026-10-30" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers $headers -ContentType "application/json; charset=utf-8" -Body $question
+cd web
+npm install
+npm run dev
 ```
 
-上传接口为 `POST /v1/archives/upload`，接受 TXT、可提取文本的 PDF、DOCX；扫描版 PDF 需要先 OCR。`GET /health/live`、`GET /health/ready` 可用于健康检查；`/docs` 展示 OpenAPI 文档。
+前端默认代理到后端 8000；如果后端在 8001，先设置 `$env:VITE_API_TARGET='http://127.0.0.1:8001'` 再启动 Vite。**当前 token 事件是在模型回答完成后分块发送**，方便学习 SSE；尚未实现真正的模型逐 token 生成和对正在执行的同步模型请求即时取消。
 
-## 安全边界
+## 独立练习
 
-- `APP_ENV=production` 时必须使用 JWT。设置 `AUTH_MODE=jwt`、`JWT_ISSUER`、`JWT_AUDIENCE`、`JWT_JWKS_URL`。生产 JWKS 只能用 HTTPS。租户、角色和密级只从已验证的 JWT 声明读取。
-- 本地模式的 `X-Demo-*` 身份头和演示 Token **仅供本机练习**。不要将其部署到可被其他人访问的环境。
-- 检索先按租户、生效日期、最新版本、角色和密级过滤，再做文本排序。无权限档案不会进入 LLM 上下文。档案写入与审计事件在同一 SQLite 事务中完成。
-- 审计记录查询哈希和档案版本，不记录问题原文或档案正文。上传体和提取文本有上限。重复上传相同版本可幂等返回；同版本不同内容返回 409。
-- 引用中的 `score` 仅用于本次检索排序，不是概率或合规判断分数。
-- 模型输出只能引用本次检索的 `source_id`；格式或引用异常时退回抽取式回答。提示词要求把档案内容视作数据，不能执行档案内的指令。回答仍应由业务人员核对原件。
-
-## 接入真实模型
-
-将 `.env` 中 `LLM_PROVIDER` 改为 `openai`，并配置 `OPENAI_API_KEY` 与你有权限使用的 `OPENAI_MODEL`。服务使用 Responses API 的 Pydantic 结构化输出，模型调用失败返回 502。密钥应由密钥管理系统或运行环境注入，不应写入仓库。
-
-## 验证与生产化
-
-运行：`.\.venv\Scripts\python.exe -m pytest -q`。
-
-本地 SQLite + 进程内 BM25 适合验证业务边界。高并发或大规模档案上线前，应替换为受控对象存储、持久化检索索引和生产数据库，补齐原件留存、OCR、数据保留策略、密钥管理、网关限流、集中日志与监控，并对真实合同样本做检索和引用评测。
-
-## 学习路线
-**先看 [main.py](D:/agent学习/testDemo/financial-agent/app/main.py:89)** 的 `chat()`，它是提问接口的入口。拿“提前还款需要提前多少天申请？”沿这一条流程读：
-
-`chat()` → [auth.py](D:/agent学习/testDemo/financial-agent/app/services/auth.py:72) 验证身份 → [graph.py](D:/agent学习/testDemo/financial-agent/app/agent/graph.py:12) 进入状态图 → [nodes.py](D:/agent学习/testDemo/financial-agent/app/agent/nodes.py:16) 执行 `retrieve → grade → answer` → [retrieval.py](D:/agent学习/testDemo/financial-agent/app/services/retrieval.py:51) 按权限和日期检索档案 → [llm.py](D:/agent学习/testDemo/financial-agent/app/services/llm.py:41) 根据证据生成回答 → `chat()` 返回答案和引用。
-
-如果 `grade` 没找到证据，图会先走 `rewrite → retrieve` 再试一次；仍找不到就返回“依据不足”，不会调用大模型。
-
-要把**档案入库**也串起来，先看 [run_demo.py](D:/agent学习/testDemo/financial-agent/examples/run_demo.py:13)：它先调用 `main.py` 的 `/v1/archives`，由 [archive.py](D:/agent学习/testDemo/financial-agent/app/services/archive.py:77) 保存档案，然后才调用 `/v1/chat`。建议边读边在上述函数处打断点跑一次。
-```mermaid
-flowchart TD
-    A[导入合同档案] --> B[POST /v1/archives]
-    B --> C[校验内容、身份和写入权限]
-    C --> D[(保存档案版本与审计记录)]
-    D --> E[提交问题：POST /v1/chat]
-    E --> F[验证身份与读取权限]
-    F --> G[LangGraph：retrieve]
-    G --> H[按租户、角色、密级、生效日期过滤]
-    H --> I[BM25 检索片段]
-    I --> J[grade：有相关证据吗？]
-    J -->|没有，且未达重试上限| K[rewrite：改写问题]
-    K --> G
-    J -->|有证据| L[answer]
-    J -->|重试后仍没有| M[返回依据不足]
-    L --> N[模型根据证据生成回答]
-    N --> O[校验引用 source_id]
-    O --> P[记录审计并返回答案、档案版本和引用]
-    M --> P![alt text](mermaid-diagram.png)
+```powershell
+.\.venv\Scripts\python.exe -m labs.langgraph_control
+.\.venv\Scripts\python.exe -m pip install -r labs/requirements-milvus.txt
+.\.venv\Scripts\python.exe -m labs.milvus_demo --scope all
+.\.venv\Scripts\python.exe -m labs.milvus_demo --scope legal
+.\.venv\Scripts\python.exe -m labs.retrieval_enhancement
+.\.venv\Scripts\python.exe -m labs.rerank_demo
+.\.venv\Scripts\python.exe -m pip install -r labs/requirements-light.txt
+.\.venv\Scripts\python.exe -m labs.sql_guard
+.\.venv\Scripts\python.exe -m labs.review.reviewer
+.\.venv\Scripts\python.exe -m eval.run_offline --top-k 3
+.\.venv\Scripts\python.exe -m eval.run_offline --top-k 5
+.\.venv\Scripts\python.exe -m eval.compare_prompts
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-阅读代码从 [main.py](D:/agent学习/testDemo/financial-agent/app/main.py:89) 进入，接着看 [graph.py](D:/agent学习/testDemo/financial-agent/app/agent/graph.py:12) 和 [nodes.py](D:/agent学习/testDemo/financial-agent/app/agent/nodes.py:16)。
+Milvus 实验用独立的 `data/milvus_lab.db`、50 个虚构片段和 1024 维**哈希占位向量**验证 collection、标量过滤、upsert 与删除。真正 BGE-M3 / Reranker 要额外装 `labs/requirements-models.txt` 并带 `--real-model` 运行；模型较大，首次下载慢。可选 Langfuse 实验只发送虚构数据。RAGAS 四指标使用 [独立依赖环境](eval/requirements-ragas.txt)，详情见每日导读 Day 14。
+
+当前虚构 Golden Dataset 的离线结果：`top_k=3/5` 均为正样本引用 **8/8**、关键事实 **8/8**，负样本拒答 **2/2**。这只说明练习集通过，不代表真实业务准确率或阈值已完成校准。
+
+如已配置外部模型，可显式运行 `.\.venv\Scripts\python.exe -m examples.smoke_live_model`，它用临时库中的虚构档案做一次真实模型调用，不读取本机正式档案。
+
+## 安全与能力边界
+
+- 生产模式必须使用带签名、有效期、发行方和受众校验的 JWT。`X-Demo-*` 身份头和公开演示 Token 仅允许本机练习。
+- 查询先做租户、最新生效版本、角色和密级过滤，再打分；无权限片段不会进入 LLM 上下文。审计记录问题哈希和引用版本，不记录问题正文。
+- 本地 SQLite + 查询时 BM25 适合练习；大规模服务需持久索引、受控原件存储、备份与数据保留策略。可选 BGE 重排阈值须用真实标注集校准。
+- SQL 守卫和 diff 审查是 [labs/](labs/) 下的独立实验，未接入主问答 API，也未自动回写 GitHub/GitLab 评论。
+- 原 PDF 布局、扫描件 OCR、Milvus 集群运维、真实模型流取消和企业级前端权限管理尚未实现。不要把学习材料中的团队人数、上线日期或准确率当作本项目证据。

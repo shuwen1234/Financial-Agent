@@ -35,7 +35,7 @@ class ArchiveCreate(BaseModel):
         return sorted(set(roles))
 
     @model_validator(mode="after")
-    def validate_dates(self) -> "ArchiveCreate":
+    def validate_dates(self) -> ArchiveCreate:
         if self.effective_to and self.effective_to < self.effective_from:
             raise ValueError("effective_to 不能早于 effective_from")
         return self

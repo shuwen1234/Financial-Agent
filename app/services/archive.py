@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from datetime import date, datetime, timezone
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from app.schemas.archive import ArchiveCreate, ArchiveMetadata, StoredArchive
@@ -25,12 +27,20 @@ class ArchiveStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def _connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=10000")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _initialize(self) -> None:
         with self._connection() as conn:
@@ -77,7 +87,7 @@ class ArchiveStore:
     def ingest(self, principal: Principal, payload: ArchiveCreate, trace_id: str) -> ArchiveMetadata:
         canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, ensure_ascii=False).encode("utf-8")
         checksum = hashlib.sha256(canonical).hexdigest()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
@@ -136,7 +146,7 @@ class ArchiveStore:
     def _audit_in_transaction(conn: sqlite3.Connection, trace_id: str, principal: Principal, action: str, outcome: str, details: dict) -> None:
         conn.execute(
             "INSERT INTO audit_events(occurred_at,trace_id,tenant_id,user_id,action,outcome,details_json) VALUES(?,?,?,?,?,?,?)",
-            (datetime.now(timezone.utc).isoformat(), trace_id, principal.tenant_id, principal.user_id,
+            (datetime.now(UTC).isoformat(), trace_id, principal.tenant_id, principal.user_id,
              action, outcome, json.dumps(details, ensure_ascii=False, sort_keys=True)),
         )
 
